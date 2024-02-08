@@ -28,10 +28,12 @@ def process_audio(input_file, output_file, normalization=True, speed_factor=1.0)
     print(f'Audio processed successfully. Saved as {output_file}')    
 
     # Call audiosr
-    command = "audiosr -i .\\pyramid_song_down_1.wav"
+    # command = "audiosr -i .\\pyramid_song_down_1.wav"
+    command = "audiosr -i out000.wav"    
 
     try:
-        subprocess.run(["powershell", "-Command", command], check=True)
+        subprocess.run(command, shell=True, check=True)
+        # subprocess.run(["powershell", "-Command", command], check=True)
     except subprocess.CalledProcessError as e:
         print("Error:", e)
 
@@ -55,7 +57,7 @@ def speed_change(sound, speed=1.0):
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        print("Usage: python audio_processing.py input_file output_file speed_factor")
+        print("Usage: python processing.py input_file output_file speed_factor")
         sys.exit(1)
 
     input_file = sys.argv[1]
