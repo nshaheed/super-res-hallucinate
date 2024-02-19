@@ -1,10 +1,15 @@
 from pydub import AudioSegment
 import sys
 import subprocess
+import tempfile
+import os
+import numpy as np
+
+import audiosr
 
 # takes in an audio file and preps it for being super-res'd
 
-def process_audio(input_file, output_file, normalization=True, speed_factor=1.0):
+def process_audio(input_file, output_file, speed_factor=1.0, normalization=True):
     # Load the audio file
     audio = AudioSegment.from_wav(input_file)
 
@@ -18,29 +23,66 @@ def process_audio(input_file, output_file, normalization=True, speed_factor=1.0)
     # Downsample
     audio = audio.set_frame_rate(4000)
 
-    # Break into 5.12 second chunks
+    # Break into 5.12 second chunks && super-res
+    # Using a tempdir to store the intermediary files
+    with tempfile.TemporaryDirectory() as dir:
 
-    # Export all chunks
+        # split audio into a bunch of files
+        split_dur = int(5.12 * 1000) # in ms
 
+        splits = (audio[i:i+split_dur] for i in range(0, int(audio.duration_seconds * 1000), split_dur))
 
-    # Export the modified audio to a new file
-    audio.export(output_file, format="wav")
-    print(f'Audio processed successfully. Saved as {output_file}')    
+        split_count = None
 
-    # Call audiosr
-    # command = "audiosr -i .\\pyramid_song_down_1.wav"
-    command = "audiosr -i out000.wav"    
+        # export file chunks
+        for i, split in enumerate(splits):
+            output_path = os.path.join(dir, f'file_{i}')
+            split.export(output_path, format="wav")
+            split_count = i
 
-    try:
-        subprocess.run(command, shell=True, check=True)
-        # subprocess.run(["powershell", "-Command", command], check=True)
-    except subprocess.CalledProcessError as e:
-        print("Error:", e)
+        # keep this?
+        entire_audio_path = os.path.join(dir, 'file_full')
+        audio.export(entire_audio_path)
 
-    # Stitch together results
+        # set the save path
+        # TODO support save patch in config (or use hydra dirs)
+        save_path = 'test'
+        os.makedirs(save_path, exist_ok=True)
 
-    # ...I'm missing something here
+        # load model
+        # TODO can move this out?
+        # TODO device and model name are hydra configs
+        model = audiosr.build_model(model_name='basic',device='cpu')
 
+        # empty array to append
+        full_audio = np.empty([1,1,0])
+
+        for i in range(split_count):
+        # for i in range(2):
+            filepath = os.path.join(dir, f'file_{i}')
+
+            print(f'running {filepath}')
+
+            # run model
+            # this outputs a numpy array, so I can just concat these as needed to get the full file!
+            # the shape was: waveform.shape=(1, 1, 245776)
+            waveform = audiosr.super_resolution(
+                model, # model
+                filepath, # input file
+                seed=42,
+                guidance_scale=3.5,
+                ddim_steps=50,
+                latent_t_per_second=12.8
+            )
+
+            # print(f'{waveform.shape=}')
+
+            # append to full_audio
+            full_audio = np.append(full_audio, waveform, axis=2)
+
+        # save output to file
+        name = os.path.splitext(os.path.basename(entire_audio_path))[0] + '_AudioSR_Processed_48K'
+        audiosr.save_wave(full_audio, inputpath=entire_audio_path, savepath=save_path, name=name, samplerate=48000)
 
 
 def speed_change(sound, speed=1.0):
@@ -69,4 +111,4 @@ if __name__ == "__main__":
         print("Error: speed_factor must be a valid float")
         sys.exit(1)
 
-    process_audio(input_file, output_file, normalization=True, speed_factor=speed_factor)
+    process_audio(input_file, output_file, speed_factor=speed_factor, normalization=True)
