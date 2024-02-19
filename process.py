@@ -1,9 +1,15 @@
 from pydub import AudioSegment
+
 import sys
 import subprocess
 import tempfile
 import os
 import numpy as np
+import pdb
+import hydra
+
+from pathlib import Path
+
 
 import audiosr
 
@@ -36,16 +42,16 @@ def process_audio(base_name, input_file, model, iter_num=0, speed_factor=1.0, no
 
         # export file chunks
         for i, split in enumerate(splits):
-            output_path = os.path.join(dir, f'file_{i}')
+            output_path = os.path.join(dir, f'file_{i}.wav')
             split.export(output_path, format="wav")
-            split_count = i
+            split_count = i+1
 
-        entire_audio_path = os.path.join(dir, 'file_full')
+        entire_audio_path = os.path.join(dir, 'file_full.wav')
         audio.export(entire_audio_path)
 
         # set the save path
         # TODO support save patch in config (or use hydra dirs)
-        save_path = 'test'
+        save_path = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
         os.makedirs(save_path, exist_ok=True)
 
         # empty array to append
@@ -53,7 +59,7 @@ def process_audio(base_name, input_file, model, iter_num=0, speed_factor=1.0, no
 
         for i in range(split_count):
         # for i in range(2):
-            filepath = os.path.join(dir, f'file_{i}')
+            filepath = os.path.join(dir, f'file_{i}.wav')
 
             print(f'running {filepath}')
 
@@ -69,17 +75,15 @@ def process_audio(base_name, input_file, model, iter_num=0, speed_factor=1.0, no
                 latent_t_per_second=12.8
             )
 
-            # print(f'{waveform.shape=}')
-
             # append to full_audio
             full_audio = np.append(full_audio, waveform, axis=2)
 
         # save output to file
         # name = os.path.splitext(os.path.basename(entire_audio_path))[0] + '_AudioSR_Processed_48K'
-        name = f'{base_name}-{iter_num:03}.wav'
+        name = f'{base_name}-{iter_num:03}'
         audiosr.save_wave(full_audio, inputpath=entire_audio_path, savepath=save_path, name=name, samplerate=48000)
 
-        return os.path.join(save_path, name)
+        return os.path.join(save_path, name + '.wav')
 
 
 def speed_change(sound, speed=1.0):
@@ -99,33 +103,25 @@ def calc_speed(shift, steps):
     return shift**(1.0/steps)
 
 # call process_audio several times to slowly shift it down to the desired freq
-def slow_shift(input_file, shift=0.5, steps=12):
+def slow_shift(input_file, shift=0.5, steps=12, device='cpu'):
     speed = calc_speed(shift, steps)
 
+    base_name = Path(input_file).stem
     # load model
     # TODO can move this out?
     # TODO device and model name are hydra configs
-    model = audiosr.build_model(model_name='basic',device='cpu')
+    model = audiosr.build_model(model_name='basic',device=device)
 
     for i in range(steps):
         # process_audio(input_file, output_file, model, speed_factor=speed, normalization=True)
 
         input_file = process_audio(base_name, input_file, model, iter_num=i, speed_factor=speed, normalization=True)
 
+@hydra.main(version_base=None, config_path="configs", config_name="config")
+def shift_app(cfg):
+    # process_audio(input_file, output_file, speed_factor=speed_factor, normalization=True)
+    slow_shift(cfg.input_file, shift=cfg.shift, steps=cfg.steps, device=cfg.device)
+
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python processing.py input_file output_file speed_factor")
-        sys.exit(1)
-
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
-    
-    try:
-        speed_factor = float(sys.argv[3])
-    except ValueError:
-        print("Error: speed_factor must be a valid float")
-        sys.exit(1)
-
-    # process_audio(input_file, output_file, speed_factor=speed_factor, normalization=True)
-    slow_shift(input_file, shift=0.5, steps=1)
+    shift_app()

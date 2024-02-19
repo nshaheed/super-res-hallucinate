@@ -1,0 +1,4 @@
+device: cuda
+input_file: test.wav
+shift: 0.5
+steps: 1
